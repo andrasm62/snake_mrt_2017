@@ -88,7 +88,7 @@ always @(posedge clk) begin
 		data_reg <= 0;
 	else if(state_reg == START)
 		data_reg <= data_in;
-	else if(state_reg == TRANSFER && en)
+	else if((state_reg == TRANSFER) && (clk_cntr == CLK_DIV_VAL_HALF))
 		data_reg <= {data_reg[6:0], miso};
 end
 
@@ -114,7 +114,7 @@ end
 always @(posedge clk) begin
 	if(rst)
 		mosi_reg <= 0;
-	else if(state_reg == TRANSFER)
+	else if((state_reg == START) || (clk_cntr == CLK_DIV_VAL))
 		mosi_reg <= data_reg[7];
 end	
 
