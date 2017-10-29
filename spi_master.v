@@ -21,10 +21,10 @@ localparam CLK_DIV_VAL = 49999;
 
 
 reg [15:0] clk_cntr;
-reg [7:0] data_reg;
+reg [7:0] data_reg, data_out_reg;
 reg [3:0] sck_cntr;
 reg [2:0] state_reg;
-reg mosi_reg, start_reg, sck_reg, ready_reg, ready_en_reg;
+reg mosi_reg, miso_reg, start_reg, sck_reg, ready_reg, ready_en_reg;
 wire en;
 
 assign en = (clk_cntr == CLK_DIV_VAL);
@@ -32,14 +32,16 @@ assign mosi = mosi_reg;
 assign sck = (sck_reg);
 assign ready = ready_reg;
 assign busy = (state_reg != IDLE);
-assign data_out = data_reg;
+assign data_out = data_out_reg;
 
 
 //CLK divide
 always @(posedge clk) begin
 	if(rst)
 		clk_cntr <= 0;
-	else if(state_reg != IDLE) begin
+	else if(state_reg == IDLE)
+			clk_cntr <= 0;
+	else begin
 		if(clk_cntr == CLK_DIV_VAL)
 			clk_cntr <= 0;
 		else
@@ -88,13 +90,31 @@ always @(posedge clk) begin
 		data_reg <= 0;
 	else if(state_reg == START)
 		data_reg <= data_in;
+	else if((state_reg == TRANSFER) && (clk_cntr == CLK_DIV_VAL))
+		data_reg <= {data_reg[6:0], miso_reg};
+end
+
+//data_out register
+always @(posedge clk) begin
+	if(rst)
+		data_out_reg <= 0;
+	else if(state_reg == READY)
+		data_out_reg <= data_reg;
+end
+
+//MISO reg
+always @(posedge clk) begin
+	if(rst)
+		miso_reg <= 0;
 	else if((state_reg == TRANSFER) && (clk_cntr == CLK_DIV_VAL_HALF))
-		data_reg <= {data_reg[6:0], miso};
+		miso_reg <= miso;
 end
 
 //SCK counter register
 always @(posedge clk) begin
 	if(rst)
+		sck_cntr <= 0;
+	else if(state_reg == START)
 		sck_cntr <= 0;
 	else if(state_reg == TRANSFER && en)
 		sck_cntr <= sck_cntr + 1;
@@ -105,17 +125,19 @@ always @(posedge clk) begin
 	if(rst)
 		sck_reg <= 0;
 	else if(clk_cntr == CLK_DIV_VAL_HALF)
-	sck_reg <= 1;
+		sck_reg <= 1;
 	else if(clk_cntr == CLK_DIV_VAL)
-	sck_reg <= 0;
+		sck_reg <= 0;
 end
 
 //MOSI register
 always @(posedge clk) begin
 	if(rst)
 		mosi_reg <= 0;
-	else if((state_reg == START) || (clk_cntr == CLK_DIV_VAL))
+	else if(state_reg == TRANSFER)
 		mosi_reg <= data_reg[7];
+	else
+		mosi_reg <= 0;
 end	
 
 //Ready register
