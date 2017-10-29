@@ -26,6 +26,7 @@ module fpga_cpld(
    input [3:0] seg0,
    input [3:0] seg1,
    output [7:0] sw,
+   output [4:0] nav_sw
    
    output reg  cpld_clk,
    output reg  cpld_ld,
@@ -34,10 +35,11 @@ module fpga_cpld(
 );
    
 wire [3:0] seg_mux;
-reg [7:0] seg_data, sw_reg;
-reg [11:0] szamlalo_12;
-reg [4:0] szamlalo_5;
+
 reg [15:0] shiftreg, shiftreg_2;
+reg [11:0] szamlalo_12;
+reg [7:0] seg_data, sw_reg;
+reg [4:0] szamlalo_5, nav_sw_reg;
 reg eldetektalo, ce;
 	
 	
@@ -110,6 +112,7 @@ else if(ce)
 		if(szamlalo_5[3:0] == 15) begin
 			shiftreg <= {~seg_data,led};
 			sw_reg <= shiftreg_2[7:0];
+			nav_sw_reg <= shiftreg_2[12:8];
 			end
 		else
 			begin
@@ -137,5 +140,6 @@ else
 end
 
 assign sw = sw_reg;
+assign nav_sw = nav_sw_reg;
 
 endmodule
