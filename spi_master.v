@@ -27,7 +27,7 @@ module user_logic #(
    
    //Itt kell megadni a többi saját portot.
 
-	input							miso,
+	inout							miso,
 	output							mosi,
 	output							sck,
 	output							spi_sdcard_csn,
@@ -37,8 +37,8 @@ module user_logic #(
 
 localparam STATE_SIZE = 2;
 localparam IDLE = 2'b00, START = 2'b01, TRANSFER = 2'b10, READY = 2'b11;
-localparam CLK_DIV_VAL_HALF = 24999;
-localparam CLK_DIV_VAL = 49999;
+localparam CLK_DIV_VAL_HALF = 9; //CLK_DIV_VAL_HALF = (CLK_DIV_VAL - 1) / 2
+localparam CLK_DIV_VAL = 19; // SPI Speed will be CPU_SPEED / 20
 
 //
 wire clk = Bus2IP_Clk;
@@ -55,6 +55,7 @@ reg spi_sdcard_csn_reg, spi_flash_csn_reg, spi_lcd_csn_reg;
 
 assign cpld_jtagen = 0;
 assign cpld_rstn = Bus2IP_Resetn;
+assign miso (mode_reg && ~spi_lcd_csn_reg) ? c_d_reg : 1'bz;
 
 assign en = (clk_cntr == CLK_DIV_VAL);
 assign mosi = mosi_reg;
@@ -165,21 +166,13 @@ always @(posedge clk) begin
 	if(rst)
 		clk_cntr <= 0;
 	else if(state_reg == IDLE)
-			clk_cntr <= 0;
+		clk_cntr <= 0;
 	else begin
 		if(clk_cntr == CLK_DIV_VAL)
 			clk_cntr <= 0;
 		else
 			clk_cntr <= clk_cntr + 1;
 	end
-end
-
-//Counting SCK pulses
-always @(posedge clk) begin
-	if(rst)
-		sck_cntr <= 0;
-	else if(clk_cntr == CLK_DIV_VAL)
-		sck_cntr <= sck_cntr + 1;
 end
 
 //Status register
@@ -209,7 +202,7 @@ always @(posedge clk) begin
 	end
 end
 
-//data register
+//data_in register
 always @(posedge clk) begin
 	if(rst)
 		data_in_reg <= 0;
@@ -223,14 +216,6 @@ always @(posedge clk) begin
 		data_out_reg <= 0;
 	else if(state_reg == READY)
 		data_out_reg <= data_in_reg;
-end
-
-//MISO reg
-always @(posedge clk) begin
-	if(rst)
-		miso_reg <= 0;
-	else if((state_reg == TRANSFER) && (clk_cntr == CLK_DIV_VAL_HALF))
-		miso_reg <= miso;
 end
 
 //SCK counter register
@@ -263,6 +248,14 @@ always @(posedge clk) begin
 		mosi_reg <= 0;
 end	
 
+//MISO reg
+always @(posedge clk) begin
+	if(rst)
+		miso_reg <= 0;
+	else if((state_reg == TRANSFER) && (clk_cntr == CLK_DIV_VAL_HALF))
+		miso_reg <= miso;
+end
+
 //Ready register
 always @(posedge clk) begin
 	if (rst) begin
@@ -278,7 +271,7 @@ always @(posedge clk) begin
 	end
 end
 
-//CS register
+// /CS registers
 always @(posedge clk) begin
 	if (rst) begin
 		spi_sdcard_csn_reg <= 0;
