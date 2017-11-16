@@ -2,37 +2,40 @@
 `uselib lib=proc_common_v3_00_a
 
 module user_logic #(
-	//Az IPIF interf√©szhez tartoz√≥ param√©terek.
-	parameter C_NUM_REG                      = 3,		//Az IPIF √°ltal dek√≥dolt 32 bites regiszterek sz√°ma.
-	parameter C_SLV_DWIDTH                   = 32		//Az adatbusz sz√©less√©ge bitekben.
+	//Az IPIF interfÈszhez tartozÛ paramÈterek.
+	parameter C_NUM_REG                      = 3,		//Az IPIF ·ltal dekÛdolt 32 bites regiszterek sz·ma.
+	parameter C_SLV_DWIDTH                   = 32		//Az adatbusz szÈlessÈge bitekben.
    
-	//Itt kell megadni a t√∂bbi saj√°t param√©tert.
+	//Itt kell megadni a tˆbbi saj·t paramÈtert.
 ) (
-	//Az IPIF interf√©szhez tartoz√≥ portok. Ha a Create or Import Peripheral
-	//Wizard-ban nem jel√∂lt√ºk be a mem√≥ria interf√©szhez tartoz√≥ Bus2IP_Addr,
-	//Bus2IP_CS √©s Bus2IP_RNW jelek hozz√°ad√°s√°t, akkor ezeket innen t√∂r√∂lj√ºk.
-	input  wire                      Bus2IP_Clk,			//√ìrajel.
-	input  wire                      Bus2IP_Resetn,		//Akt√≠v alacsony reset jel.
-//	input  wire [31:0]               Bus2IP_Addr,		//C√≠mbusz.
-//	input  wire [0:0]                Bus2IP_CS,			//A perif√©ria c√≠mtartom√°ny√°nak el√©r√©s√©t jelz≈ë jel.
-//	input  wire                      Bus2IP_RNW,			//A m≈±velet t√≠pus√°t (0: √≠r√°s, 1: olvas√°s) jelz≈ë jel.
-	input  wire [C_SLV_DWIDTH-1:0]   Bus2IP_Data,		//√çr√°si adatbusz.
-	input  wire [C_SLV_DWIDTH/8-1:0] Bus2IP_BE,			//B√°jt enged√©lyez≈ë jelek (csak √≠r√°s eset√©n √©rv√©nyesek).
-	input  wire [C_NUM_REG-1:0]      Bus2IP_RdCE,		//A regiszterek olvas√°s enged√©lyez≈ë jelei.
-	input  wire [C_NUM_REG-1:0]      Bus2IP_WrCE,		//A regiszterek √≠r√°s enged√©lyez≈ë jelei.
-	output reg  [C_SLV_DWIDTH-1:0]   IP2Bus_Data,		//Olvas√°si adatbusz.
-	output wire                      IP2Bus_RdAck,		//Az olvas√°si m≈±veletek nyugt√°z√≥ jele.
-	output wire                      IP2Bus_WrAck,		//Az √≠r√°si m≈±veletek nyugt√°z√≥ jele.
-	output wire                      IP2Bus_Error,		//Hibajelz√©s.
+	//Az IPIF interfÈszhez tartozÛ portok. Ha a Create or Import Peripheral
+	//Wizard-ban nem jelˆlt¸k be a memÛria interfÈszhez tartozÛ Bus2IP_Addr,
+	//Bus2IP_CS Ès Bus2IP_RNW jelek hozz·ad·s·t, akkor ezeket innen tˆrˆlj¸k.
+	input  wire                      Bus2IP_Clk,			//”rajel.
+	input  wire                      Bus2IP_Resetn,		//AktÌv alacsony reset jel.
+//	input  wire [31:0]               Bus2IP_Addr,		//CÌmbusz.
+//	input  wire [0:0]                Bus2IP_CS,			//A perifÈria cÌmtartom·ny·nak elÈrÈsÈt jelzo jel.
+//	input  wire                      Bus2IP_RNW,			//A muvelet tÌpus·t (0: Ìr·s, 1: olvas·s) jelzo jel.
+	input  wire [C_SLV_DWIDTH-1:0]   Bus2IP_Data,		//Õr·si adatbusz.
+	input  wire [C_SLV_DWIDTH/8-1:0] Bus2IP_BE,			//B·jt engedÈlyezo jelek (csak Ìr·s esetÈn ÈrvÈnyesek).
+	input  wire [C_NUM_REG-1:0]      Bus2IP_RdCE,		//A regiszterek olvas·s engedÈlyezo jelei.
+	input  wire [C_NUM_REG-1:0]      Bus2IP_WrCE,		//A regiszterek Ìr·s engedÈlyezo jelei.
+	output reg  [C_SLV_DWIDTH-1:0]   IP2Bus_Data,		//Olvas·si adatbusz.
+	output wire                      IP2Bus_RdAck,		//Az olvas·si muveletek nyugt·zÛ jele.
+	output wire                      IP2Bus_WrAck,		//Az Ìr·si muveletek nyugt·zÛ jele.
+	output wire                      IP2Bus_Error,		//HibajelzÈs.
    
-   //Itt kell megadni a t√∂bbi saj√°t portot.
+   //Itt kell megadni a tˆbbi saj·t portot.
 
-	inout							miso,
+	//input								miso_I,
+	output							miso,
+	//output							miso_T,
 	output							mosi,
 	output							sck,
 	output							spi_sdcard_csn,
 	output							spi_flash_csn,
-	output							spi_lcd_csn
+	output							spi_lcd_csn,
+	output							ready
 );
 
 localparam STATE_SIZE = 2;
@@ -46,7 +49,7 @@ wire rst = ~Bus2IP_Resetn;
 wire en;
 
 reg [15:0] clk_cntr;
-reg [7:0] data_in_reg, data_out_reg;
+reg [7:0] data_in_reg, data_out_reg, data_reg;
 reg [3:0] sck_cntr;
 reg [2:0] state_reg;
 reg mosi_reg, miso_reg, sck_reg;
@@ -55,7 +58,9 @@ reg spi_sdcard_csn_reg, spi_flash_csn_reg, spi_lcd_csn_reg;
 
 assign cpld_jtagen = 0;
 assign cpld_rstn = Bus2IP_Resetn;
-assign miso (mode_reg && ~spi_lcd_csn_reg && state_reg == TRANSFER) ? c_d_reg : 1'bz;
+assign miso = c_d_reg;
+//assign miso_O = c_d_reg;
+//assign miso_T = (mode_reg && ~spi_lcd_csn_reg && state_reg == TRANSFER);
 
 assign en = (clk_cntr == CLK_DIV_VAL);
 assign mosi = mosi_reg;
@@ -70,11 +75,11 @@ assign spi_lcd_csn = spi_lcd_csn_reg;
 //******************************************************************************
 //* DATA_IN register (BASE+0x00, 8 bit, RW).                                       *
 //******************************************************************************
-wire		data_in_reg_wr = Bus2IP_WrCE[2] & (Bus2IP_BE == 4'b0001);
+wire		data_in_reg_wr = Bus2IP_WrCE[2];
 
 always @(posedge clk)
 begin
-	if (rst == 0)
+	if (rst)
 		data_in_reg <= 8'd0;
 	else if (data_in_reg_wr)
 		data_in_reg <= Bus2IP_Data[7:0];
@@ -84,14 +89,16 @@ end
 //* Conversion START register (BASE+0x01, 1bit, RW).                                       *
 //******************************************************************************
 reg			start_reg;
-wire		start_reg_wr = Bus2IP_WrCE[2] & (Bus2IP_BE == 4'b0010);
+wire		start_reg_wr = Bus2IP_WrCE[2];
 
 always @(posedge clk)
 begin
-	if (rst == 0)
+	if (rst)
 		start_reg <= 1'd0;
+	else if(start_reg == 1)
+					start_reg <= 0;
 	else if (start_reg_wr)
-		start_reg <= Bus2IP_Data[8];
+		start_reg <= Bus2IP_Data[24];
 end
 
 //******************************************************************************
@@ -99,11 +106,11 @@ end
 //******************************************************************************
 reg [2:0]	cs_reg;
 reg 		mode_reg;
-wire		cs_reg_wr = Bus2IP_WrCE[2] & (Bus2IP_BE == 4'b0100);
+wire		cs_reg_wr = Bus2IP_WrCE[2];
 
 always @(posedge clk)
 begin
-	if (rst == 0) begin
+	if (rst) begin
 		mode_reg <= 1'd0;
 		cs_reg <= 0;
 	end
@@ -117,29 +124,29 @@ end
 //* LCD Command/Data register (BASE+0x03, 1 bit, RW).                                       *
 //******************************************************************************
 reg			c_d_reg;
-wire		c_d_reg_wr = Bus2IP_WrCE[2] & (Bus2IP_BE == 4'b1000);
+wire		c_d_reg_wr = Bus2IP_WrCE[2];
 
 always @(posedge clk)
 begin
-	if (rst == 0)
+	if (rst)
 		c_d_reg <= 1'd0;
 	else if (c_d_reg_wr)
-		c_d_reg <= Bus2IP_Data[24];
+		c_d_reg <= Bus2IP_Data[8];
 end
 
 //******************************************************************************
 //* Interrupt register (BASE+0x0B, 1 bit, RW).                                       *
 //******************************************************************************
 reg			ready_reg, ready_en_reg;
-wire		ready_reg_wr = Bus2IP_WrCE[0] & (Bus2IP_BE == 4'b1000);
+wire		ready_reg_wr = Bus2IP_WrCE[0];
 
 always @(posedge clk)
 begin
-	if (rst == 0) begin
+	if (rst) begin
 		ready_en_reg <= 1'd0;
 	end
 	else if (ready_reg_wr) begin
-		ready_en_reg <= Bus2IP_Data[24];
+		ready_en_reg <= Bus2IP_Data[31];
 	end
 end
 
@@ -153,9 +160,9 @@ assign IP2Bus_Error = 1'b0;
 always @(*)
 begin
 	case (Bus2IP_RdCE)
-		3'b10: IP2Bus_Data <= {7'd0, c_d_reg, 4'd0, mode_reg, cs_reg, 7'd0, start_reg, data_in_reg};
-		3'b10: IP2Bus_Data <= {23'd0, busy, data_out_reg};
-		3'b01: IP2Bus_Data <= {ready_en_reg, 22'd0, ready_reg};
+		3'b100: IP2Bus_Data <= {7'd0, start_reg, 4'd0, mode_reg, cs_reg, 7'd0, c_d_reg, data_in_reg};
+		3'b010: IP2Bus_Data <= {23'd0, busy, data_out_reg};
+		3'b001: IP2Bus_Data <= {ready_en_reg, 22'd0, ready_reg};
 		default: IP2Bus_Data <= 32'd0;
 	endcase
 end
@@ -179,15 +186,12 @@ end
 always @(posedge clk) begin
 	if(rst) begin
 		state_reg <= IDLE;
-		start_reg <= 0;
 	end
 	else begin
 		case(state_reg)
 			IDLE: begin
-				if(start_reg == 1) begin
+				if(start_reg == 1)
 					state_reg <= START;
-					start_reg <= 0;
-				end
 			end
 			START: begin
 				state_reg <= TRANSFER;
@@ -205,9 +209,11 @@ end
 //data_in register
 always @(posedge clk) begin
 	if(rst)
-		data_in_reg <= 0;
+		data_reg <= 0;
+	else if(state_reg == START)
+		data_reg <= data_in_reg;
 	else if((state_reg == TRANSFER) && (clk_cntr == CLK_DIV_VAL))
-		data_in_reg <= {data_in_reg[6:0], miso_reg};
+		data_reg <= {data_reg[6:0], miso_reg};
 end
 
 //data_out register
@@ -215,7 +221,7 @@ always @(posedge clk) begin
 	if(rst)
 		data_out_reg <= 0;
 	else if(state_reg == READY)
-		data_out_reg <= data_in_reg;
+		data_out_reg <= data_reg;
 end
 
 //SCK counter register
@@ -243,11 +249,12 @@ always @(posedge clk) begin
 	if(rst)
 		mosi_reg <= 0;
 	else if(state_reg == TRANSFER)
-		mosi_reg <= data_in_reg[7];
+		mosi_reg <= data_reg[7];
 	else
 		mosi_reg <= 0;
 end	
 
+/*
 //MISO reg
 always @(posedge clk) begin
 	if(rst)
@@ -255,15 +262,14 @@ always @(posedge clk) begin
 	else if((state_reg == TRANSFER) && (clk_cntr == CLK_DIV_VAL_HALF))
 		miso_reg <= miso;
 end
+*/
 
 //Ready register
 always @(posedge clk) begin
 	if (rst) begin
 		ready_reg <= 0;
-		ready_en_reg <= 0;
 	end
 	else begin
-		ready_en_reg <= ready_en;
 		if(state_reg == READY && ready_en_reg)
 			ready_reg <= 1;
 		else 
@@ -274,9 +280,9 @@ end
 // /CS registers
 always @(posedge clk) begin
 	if (rst) begin
-		spi_sdcard_csn_reg <= 0;
-		spi_flash_csn_reg <= 0;
-		spi_lcd_csn_reg <= 0;
+		spi_sdcard_csn_reg <= 1;
+		spi_flash_csn_reg <= 1;
+		spi_lcd_csn_reg <= 1;
 	end
 	else case(cs_reg)
 		3'b100: begin
