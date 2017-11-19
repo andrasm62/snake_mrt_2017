@@ -49,7 +49,8 @@
 #define SNAKE 1
 #define FOOD 3
 #define BORDER 5
-#define MAX_LENGTH 100
+#define MAX_LENGTH 360
+#define LEVEL_LIMIT 10
 enum { RIGHT = -1, UP = 1, LEFT = -2, DOWN = 2};
 
 volatile unsigned long iValue;
@@ -182,6 +183,12 @@ void LCD_write_full_display(){
 		for(b = 0; b < (LCD_W-6); b++)
 			lcd_map[b+3][a+2]= map[b/4][a/4];
 
+	//Redesign food
+	lcd_map[4*food_x+3][4*food_y+2] = 0;
+	lcd_map[4*food_x+3+3][4*food_y+2] = 0;
+	lcd_map[4*food_x+3][4*food_y+2+3] = 0;
+	lcd_map[4*food_x+3+3][4*food_y+2+3] = 0;
+
 	for(a = 0; a < (LCD_H / 8); a++){
 		LCD_send_command(0x010100B0 | a);
 		LCD_send_command(0x0101000E);
@@ -230,6 +237,8 @@ void LCD_init(){
 void init_game(){
    	int offset, index, i, j;
 
+	alive = 0;
+	level = 1;
    	length = 4;
    	food_eaten = 0;
    	x_position = 10;
@@ -256,7 +265,6 @@ void init_game(){
    	}
 
    	//Generate random new food
-   	srand(10);
    	do {
    		food_x = rand() % XSIZE;
    		food_y = rand() % YSIZE;
@@ -266,8 +274,9 @@ void init_game(){
 
 int main()
 {
-   	int control, new_dir, a;
+   	int control, new_dir, a, i;
    	EN = 1;
+   	srand(time(NULL));
 
 	init_platform();
 
@@ -299,28 +308,50 @@ int main()
 
     // Game
     while(1){
-    	alive = 0;
     	direction = RIGHT;
     	init_game();
     	LCD_init();
     	LCD_write_full_display();
 
     	//Wait for input
-    	while (((XIo_In32(0x7e400004) & 0xF00) >> 8) == 0);
-    	//TODO: check and set level
-    	alive = 1;
+    	do {
+    		//Set level
+    		a = (~XIo_In32(0x7e400004) & 0xFF);
+    		for (i = 0; i < 8; i++){
+    			if ((a & (1 << i)) != 0){
+    				level = 8-i;
+    				break;
+    			}
+    			else
+    				level = 1;
+    		}
+    		a = 0x00FF & ~((1 << (8-level))-1);
+    		XIo_Out32(0x7e400000, a);
+    	}while (((XIo_In32(0x7e400004) & 0xF00) >> 8) == 0);
 
+    	//Set timer clock
+    	XTmrCtr_SetLoadReg(XPAR_AXI_TIMER_0_BASEADDR, 0, XPAR_AXI_TIMER_0_CLOCK_FREQ_HZ/(level+2));
+
+    	//Game start
+    	alive = 1;
     	while(alive == 1) {
     		if (lcd_rewrite == 1){
     			//LCD rewrite
     			LCD_write_full_display();
 
-    			//Score rewrite
-    			a = XIo_In32(0x7e400000) & 0xFF;
-    			a = a |(0x0F00 & ((food_eaten%10) << 8));
-    			a = a | (0xF000 & ((food_eaten/10) << 12));
+    			//Level up
+    			if (food_eaten > LEVEL_LIMIT){
+    				level = (level++) % 9;
+    				food_eaten = 0;
+    				//Set timer clock
+    				XTmrCtr_SetLoadReg(XPAR_AXI_TIMER_0_BASEADDR, 0, XPAR_AXI_TIMER_0_CLOCK_FREQ_HZ/(level+2));
+    			}
 
-    			//Level rewrite
+				//Level rewrite
+				a = 0x00FF & ~((1 << (8-level))-1);
+
+    			//Score rewrite
+    			a = a | (0x0F00 & ((food_eaten%10) << 8));
     			a = a | (0xF000 & ((food_eaten/10) << 12));
 
     			XIo_Out32(0x7e400000, a);
