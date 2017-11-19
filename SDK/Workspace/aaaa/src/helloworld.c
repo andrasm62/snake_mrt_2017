@@ -4,14 +4,14 @@
  * Xilinx, Inc.
  * XILINX IS PROVIDING THIS DESIGN, CODE, OR INFORMATION "AS IS" AS A
  * COURTESY TO YOU.  BY PROVIDING THIS DESIGN, CODE, OR INFORMATION AS
- * ONE POSSIBLE   IMPLEMSPI_IRQ_ACKTATION OF THIS FEATURE, APPLICATION OR
- * STANDARD, XILINX IS MAKING NO REPRESSPI_IRQ_ACKTATION THAT THIS IMPLEMSPI_IRQ_ACKTATION
- * IS FREE FROM ANY CLAIMS OF INFRINGEMSPI_IRQ_ACKT, AND YOU ARE RESPONSIBLE
- * FOR OBTAINING ANY RIGHTS YOU MAY REQUIRE FOR YOUR IMPLEMSPI_IRQ_ACKTATION.
+ * ONE POSSIBLE   IMPLEMENTATION OF THIS FEATURE, APPLICATION OR
+ * STANDARD, XILINX IS MAKING NO REPRESENTATION THAT THIS IMPLEMENTATION
+ * IS FREE FROM ANY CLAIMS OF INFRINGEMENT, AND YOU ARE RESPONSIBLE
+ * FOR OBTAINING ANY RIGHTS YOU MAY REQUIRE FOR YOUR IMPLEMENTATION.
  * XILINX EXPRESSLY DISCLAIMS ANY WARRANTY WHATSOEVER WITH RESPECT TO
- * THE ADEQUACY OF THE IMPLEMSPI_IRQ_ACKTATION, INCLUDING BUT NOT LIMITED TO
- * ANY WARRANTIES OR REPRESSPI_IRQ_ACKTATIONS THAT THIS IMPLEMSPI_IRQ_ACKTATION IS FREE
- * FROM CLAIMS OF INFRINGEMSPI_IRQ_ACKT, IMPLIED WARRANTIES OF MERCHANTABILITY
+ * THE ADEQUACY OF THE IMPLEMENTATION, INCLUDING BUT NOT LIMITED TO
+ * ANY WARRANTIES OR REPRESENTATIONS THAT THIS IMPLEMENTATION IS FREE
+ * FROM CLAIMS OF INFRINGEMENT, IMPLIED WARRANTIES OF MERCHANTABILITY
  * AND FITNESS FOR A PARTICULAR PURPOSE.
  *
  */
@@ -31,47 +31,135 @@
  *   ps7_uart    115200 (configured by bootrom/bsp)
  */
 
-#define LCD_W 102
-#define LCD_H 64
-
-
 #include <stdio.h>
 #include "platform.h"
 #include <xio.h>
 #include <xparameters.h>
-
+#include <stdint.h>
+#include <stdlib.h>
 #include <xtmrctr.h>
 #include <xintc_l.h>
 #include <mb_interface.h>
+#include <time.h>
+
+#define LCD_W 102
+#define LCD_H 64
+#define XSIZE 102
+#define YSIZE 64
+#define SNAKE 1
+#define FOOD 3
+#define MAX_LENGTH 100
+enum { RIGHT = -1, UP = 1, LEFT = -2, DOWN = 2};
 
 volatile unsigned long iValue;
-volatile int SPI_IRQ_ACK;
-unsigned char map[LCD_H][LCD_W];
-XTmrCtr* gpTmrCtr;	// Pointer to Timer Counter, used for general timing
-XTmrCtr* gpTimer;	// Pointer to 64-bit Timer, used for absolute time
+volatile int EN;
+volatile unsigned char lcd_map[LCD_W][LCD_H];
 
+//Gamefield
+volatile uint8_t map[XSIZE][YSIZE];
 
+//Circular buffers for snake coordinates
+volatile uint8_t snake_x[MAX_LENGTH];
+volatile uint8_t snake_y[MAX_LENGTH];
+volatile int		head_index = 0;
+volatile uint8_t length = 4;
 
-void timer_int_handler(void *instancePtr){
-	unsigned long csr;
-	int a;
-	a = XIo_In32(0x7e400000);
-	a = ~a;
-	XIo_Out32(0x7e400000, a);
-	csr = XTmrCtr_GetControlStatusReg(XPAR_AXI_TIMER_0_BASEADDR, 0);
-	XTmrCtr_SetControlStatusReg(XPAR_AXI_TIMER_0_BASEADDR, 0, csr);
-}
+//Food coordinates
+volatile uint8_t food_x;
+volatile uint8_t food_y;
 
-void spi_int_handler(void *instancePtr)
-{
-	unsigned long csr = 0x55;
-	XIo_Out32(0x7e400000, csr);
-	SPI_IRQ_ACK = 1;
+//Head direction and coordinates
+volatile int		direction = RIGHT;	//Kígyó iránya
+volatile int		x_position = 50;
+volatile int		y_position = 50;
+
+//Control variables
+volatile uint8_t level = 1;			//Sebesség
+volatile uint8_t food_eaten = 0;		//Megevett kaja
+volatile uint8_t alive = 1;			//Játék megy-e?
+
+volatile uint8_t lcd_rewrite = 0;
+
+void timer_callback() {
+	int offset, index;
+
+	//Check wall collision
+	switch (direction) {
+	case RIGHT: {
+		x_position++;
+		if (x_position >= XSIZE) {
+			alive = 0;
+			return;
+		}
+		break;
+	}
+	case UP: {
+		y_position--;
+		if (y_position < 0) {
+			alive = 0;
+			return;
+		}
+		break;
+	}
+	case LEFT: {
+		x_position--;
+		if (x_position < 0) {
+			alive = 0;
+			return;
+		}
+		break;
+	}
+	case DOWN: {
+		y_position++;
+		if (y_position >= YSIZE) {
+			alive = 0;
+			return;
+		}
+		break;
+	}
+	default: return;
+	}
+
+	//Check self collision
+	if (map[x_position][y_position] == SNAKE) {
+		alive = 0;
+		return;
+	}
+
+	//Save offset
+	offset = length - 1;
+
+	//Check food
+	if (map[x_position][y_position] == FOOD) {
+		if (++length >= MAX_LENGTH) {
+			alive = 2;	//Winner
+			return;
+		}
+		//Generate new food
+		while (map[food_x][food_y] != 0) {
+			food_x = rand() % XSIZE;
+			food_y = rand() % YSIZE;
+		}
+		map[food_x][food_y] = FOOD;
+	}
+	else {
+		//Remove tail
+		index = head_index - offset;
+		if (index < 0) index = index + MAX_LENGTH;
+		map[snake_x[index]][snake_y[index]] = 0;
+	}
+
+	//Add new head
+	if (++head_index >= MAX_LENGTH)
+		head_index = 0;
+	snake_x[head_index] = x_position;
+	snake_y[head_index] = y_position;
+	map[x_position][y_position] = SNAKE;
 }
 
 void SPI_Send(int data){
-	while(SPI_IRQ_ACK == 0);
-	SPI_IRQ_ACK = 0;
+	while(EN == 0);
+	EN = 0;
 	XIo_Out32(XPAR_SPI_IO_0_BASEADDR, data);
 }
 
@@ -84,30 +172,6 @@ void LCD_send_data(int data){
 	return;
 }
 
-void LCD_init(){
-	int i, a, b;
-	int command[13] = {0x40,0xA0,0xC8,0xA4,0xA6,0xA2,0x2F,0x27,0x81,0x10,0xFA,0x90,0xAF};
-	for(i = 0; i < 13; i++){
-		LCD_send_command(command[i]);
-	   }
-	for(a = 0; a < (LCD_H); a++){
-		for(b = 0; b < (LCD_W); b++){
-			map[a][b] = 0;
-		}
-	}
-map[1][1] = 1;
-
-map[1][2] = 1;
-
-map[2][2] = 1;
-
-map[20][30] = 1;
-for(i = 0; i< LCD_W; i++)
-	map[5][i] = 1;
-
-	return;
-}
-
 void LCD_write_full_display(){
 	unsigned char a, b, c;
 	char d;
@@ -117,7 +181,7 @@ void LCD_write_full_display(){
 		LCD_send_command(0x01010011);
 		for(b = 0; b < LCD_W; b++){
 			for(c = 0, d = 7; d >= 0; d--){
-				c = (c << 1) + (map[a * 8 + d][b] & 0x01);
+				c = (c << 1) + (map[b][a * 8 + d] & 0x01);
 			}
 			LCD_send_data(c);
 		}
@@ -125,17 +189,56 @@ void LCD_write_full_display(){
 	return;
 }
 
+void timer_int_handler(void *instancePtr){
+	unsigned long csr;
+	int a;
+	a = XIo_In32(0x7e400000);
+	a = ~a;
+	XIo_Out32(0x7e400000, a);
+	timer_callback();
+	lcd_rewrite = 1;
+
+	csr = XTmrCtr_GetControlStatusReg(XPAR_AXI_TIMER_0_BASEADDR, 0);
+	XTmrCtr_SetControlStatusReg(XPAR_AXI_TIMER_0_BASEADDR, 0, csr);
+}
+
+void spi_int_handler(void *instancePtr)
+{
+	EN = 1;
+}
+
+void LCD_init(){
+	int i, a, b;
+	int command[13] = {0x40,0xA0,0xC8,0xA4,0xA6,0xA2,0x2F,0x27,0x81,0x10,0xFA,0x90,0xAF};
+	for(i = 0; i < 13; i++){
+		LCD_send_command(command[i]);
+	   }
+	for(a = 0; a < (LCD_H); a++){
+		for(b = 0; b < (LCD_W); b++){
+			lcd_map[b][a] = 0;
+		}
+	}
+	lcd_map[1][1] = 1;
+
+	lcd_map[1][2] = 1;
+
+	lcd_map[2][2] = 1;
+
+	lcd_map[20][30] = 1;
+for(i = 0; i< LCD_W; i++)
+	lcd_map[i][5] = 1;
+
+	return;
+}
+
 int main()
 {
 	unsigned long a;
 	int i, j;
-	XTmrCtr tmrctr;
-	gpTmrCtr = &tmrctr;
-
 
 	init_platform();
 
-	SPI_IRQ_ACK = 1;
+	EN = 1;
     //A megszakításkezelõ rutin beállítása.
     XIntc_RegisterHandler(XPAR_INTC_SINGLE_BASEADDR, XPAR_MICROBLAZE_0_INTC_SPI_IO_0_READY_INTR, (XInterruptHandler) spi_int_handler, NULL);
 	XIntc_RegisterHandler(XPAR_MICROBLAZE_0_INTC_BASEADDR, XPAR_MICROBLAZE_0_INTC_AXI_TIMER_0_INTERRUPT_INTR,(XInterruptHandler) timer_int_handler,	NULL);
@@ -160,31 +263,54 @@ int main()
     //A timer elindítása.
     XTmrCtr_SetControlStatusReg(XPAR_AXI_TIMER_0_BASEADDR,0,XTC_CSR_ENABLE_TMR_MASK | XTC_CSR_ENABLE_INT_MASK |XTC_CSR_AUTO_RELOAD_MASK | XTC_CSR_DOWN_COUNT_MASK);
 
-   LCD_init();
-   LCD_write_full_display();
-/*
-   for(i = 0; i < 8; i++){
-	   while(SPI_IRQ_ACK == 0);
-   	   SPI_IRQ_ACK = 0;
-   	   XIo_Out32(0x77a00000, 0x010100B0 | i);
-	   while(SPI_IRQ_ACK == 0);
-   	   SPI_IRQ_ACK = 0;
-   	   XIo_Out32(0x77a00000, 0x01010000);
-	   while(SPI_IRQ_ACK == 0);
-   	   SPI_IRQ_ACK = 0;
-   	   XIo_Out32(0x77a00000, 0x01010010);
-   	   for(j = 0; j< 200; j++){
-   		   while(SPI_IRQ_ACK == 0);
-		   SPI_IRQ_ACK = 0;
-		   XIo_Out32(0x77a00000, 0x01010155);
-   	   }
-   }
-*/
-//while((XIo_In32(0x7e400004)&0xFF) != 0x00){};
+   // Game
+   	int offset, index;
+   	int new_dir = RIGHT;
+   	int iteration;
 
-	while(1){
-		a=XIo_In32(0x7e400004);
-		//XIo_Out32(0x7e400000, a);
-	}
-    return 0;
+   	//Initialize clear map
+   	for (j = 0; j < YSIZE; j++) {
+   		for (i = 0; i < XSIZE; i++) {
+   			map[i][j] = 0;
+   		}
+   	}
+
+   	//Initialize snake (using circular buffer)
+   	for (i = 0; i < length; i++) {
+   		snake_x[i] = ++x_position;
+   		snake_y[i] = y_position;
+   	}
+   	head_index = length - 1;
+
+   	//Draw snake
+   	for (offset = 0; offset < length; offset++) {
+   		index = head_index - offset;
+   		if (index < 0)
+   			index = index + MAX_LENGTH;
+   		map[snake_x[index]][snake_y[index]] = SNAKE;
+   	}
+
+   	//Generate random new food
+   	srand(time(NULL));
+   	do {
+   		food_x = rand() % XSIZE;
+   		food_y = rand() % YSIZE;
+   	} while (map[food_x][food_y] != 0);
+   	map[food_x][food_y] = FOOD;
+
+   	/*//Constant init food for testing
+   	food_x = 15;
+   	food_y = 15;
+   	map[food_x][food_y] = FOOD;*/
+
+    LCD_init();
+    LCD_write_full_display();
+
+
+    while(1) {
+    	if (lcd_rewrite == 1){
+    		LCD_write_full_display();
+    		lcd_rewrite = 0;
+    	}
+    }
 }
