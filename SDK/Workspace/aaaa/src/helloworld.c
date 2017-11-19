@@ -44,8 +44,8 @@
 
 #define LCD_W 102
 #define LCD_H 64
-#define XSIZE 102
-#define YSIZE 64
+#define XSIZE 51
+#define YSIZE 32
 #define SNAKE 1
 #define FOOD 3
 #define MAX_LENGTH 100
@@ -70,8 +70,8 @@ volatile uint8_t food_y;
 
 //Head direction and coordinates
 volatile int		direction = RIGHT;	//Kígyó iránya
-volatile int		x_position = 50;
-volatile int		y_position = 50;
+volatile int		x_position = 10;
+volatile int		y_position = 10;
 
 //Control variables
 volatile uint8_t level = 1;			//Sebesség
@@ -175,13 +175,18 @@ void LCD_send_data(int data){
 void LCD_write_full_display(){
 	unsigned char a, b, c;
 	char d;
+	//Resize matrix
+	for(a = 0; a < LCD_H; a++)
+		for(b = 0; b < LCD_W; b++)
+			lcd_map[b][a]= map[b/2][a/2];
+
 	for(a = 0; a < (LCD_H / 8); a++){
 		LCD_send_command(0x010100B0 | a);
 		LCD_send_command(0x0101000E);
 		LCD_send_command(0x01010011);
 		for(b = 0; b < LCD_W; b++){
 			for(c = 0, d = 7; d >= 0; d--){
-				c = (c << 1) + (map[b][a * 8 + d] & 0x01);
+				c = (c << 1) + (lcd_map[b][a * 8 + d] & 0x01);
 			}
 			LCD_send_data(c);
 		}
@@ -258,15 +263,14 @@ int main()
     //SPI interrupt engedélyezés
     XIo_Out32(0x77A0000B, 0xF0000000);
 
-	XTmrCtr_SetLoadReg(XPAR_AXI_TIMER_0_BASEADDR, 0, XPAR_AXI_TIMER_0_CLOCK_FREQ_HZ/4);
+	XTmrCtr_SetLoadReg(XPAR_AXI_TIMER_0_BASEADDR, 0, XPAR_AXI_TIMER_0_CLOCK_FREQ_HZ/1);
     XTmrCtr_SetControlStatusReg(XPAR_AXI_TIMER_0_BASEADDR,0,XTC_CSR_INT_OCCURED_MASK | XTC_CSR_LOAD_MASK);
     //A timer elindítása.
     XTmrCtr_SetControlStatusReg(XPAR_AXI_TIMER_0_BASEADDR,0,XTC_CSR_ENABLE_TMR_MASK | XTC_CSR_ENABLE_INT_MASK |XTC_CSR_AUTO_RELOAD_MASK | XTC_CSR_DOWN_COUNT_MASK);
 
    // Game
    	int offset, index;
-   	int new_dir = RIGHT;
-   	int iteration;
+   	int control, new_dir = RIGHT;
 
    	//Initialize clear map
    	for (j = 0; j < YSIZE; j++) {
@@ -291,17 +295,12 @@ int main()
    	}
 
    	//Generate random new food
-   	srand(time(NULL));
+   	srand(10);
    	do {
    		food_x = rand() % XSIZE;
    		food_y = rand() % YSIZE;
    	} while (map[food_x][food_y] != 0);
    	map[food_x][food_y] = FOOD;
-
-   	/*//Constant init food for testing
-   	food_x = 15;
-   	food_y = 15;
-   	map[food_x][food_y] = FOOD;*/
 
     LCD_init();
     LCD_write_full_display();
@@ -312,5 +311,32 @@ int main()
     		LCD_write_full_display();
     		lcd_rewrite = 0;
     	}
+
+    	control = (XIo_In32(0x7e400004) & 0xF00) >> 8;
+    	//Controls
+    	switch (control) {
+    	case 4: {
+    		new_dir = LEFT;
+    		break;
+    	}
+    	case 8: {
+    		new_dir = RIGHT;
+    		break;
+    	}
+    	case 1: {
+    		new_dir = UP;
+    		break;
+    	}
+    	case 2: {
+    		new_dir = DOWN;
+    		break;
+    	}
+    	default:
+    		new_dir = direction;
+    	}
+
+    	//180 degree turn prevented
+    	if ((direction*new_dir) < 0)
+    		direction = new_dir;
     }
 }
