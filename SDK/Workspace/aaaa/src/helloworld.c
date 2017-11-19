@@ -44,10 +44,11 @@
 
 #define LCD_W 102
 #define LCD_H 64
-#define XSIZE 51
-#define YSIZE 32
+#define XSIZE 24
+#define YSIZE 15
 #define SNAKE 1
 #define FOOD 3
+#define BORDER 5
 #define MAX_LENGTH 100
 enum { RIGHT = -1, UP = 1, LEFT = -2, DOWN = 2};
 
@@ -76,7 +77,7 @@ volatile int		y_position = 10;
 //Control variables
 volatile uint8_t level = 1;			//Sebesség
 volatile uint8_t food_eaten = 0;		//Megevett kaja
-volatile uint8_t alive = 1;			//Játék megy-e?
+volatile uint8_t alive = 0;			//Játék megy-e?
 
 volatile uint8_t lcd_rewrite = 0;
 
@@ -135,6 +136,7 @@ void timer_callback() {
 			alive = 2;	//Winner
 			return;
 		}
+		food_eaten++;
 		//Generate new food
 		while (map[food_x][food_y] != 0) {
 			food_x = rand() % XSIZE;
@@ -176,9 +178,9 @@ void LCD_write_full_display(){
 	unsigned char a, b, c;
 	char d;
 	//Resize matrix
-	for(a = 0; a < LCD_H; a++)
-		for(b = 0; b < LCD_W; b++)
-			lcd_map[b][a]= map[b/2][a/2];
+	for(a = 0; a < (LCD_H-4); a++)
+		for(b = 0; b < (LCD_W-6); b++)
+			lcd_map[b+3][a+2]= map[b/4][a/4];
 
 	for(a = 0; a < (LCD_H / 8); a++){
 		LCD_send_command(0x010100B0 | a);
@@ -196,88 +198,47 @@ void LCD_write_full_display(){
 
 void timer_int_handler(void *instancePtr){
 	unsigned long csr;
-	int a;
-	a = XIo_In32(0x7e400000);
-	a = ~a;
-	XIo_Out32(0x7e400000, a);
-	timer_callback();
+	if(alive == 1)
+		timer_callback();
 	lcd_rewrite = 1;
 
 	csr = XTmrCtr_GetControlStatusReg(XPAR_AXI_TIMER_0_BASEADDR, 0);
 	XTmrCtr_SetControlStatusReg(XPAR_AXI_TIMER_0_BASEADDR, 0, csr);
 }
 
-void spi_int_handler(void *instancePtr)
-{
+void spi_int_handler(void *instancePtr){
 	EN = 1;
 }
 
 void LCD_init(){
 	int i, a, b;
 	int command[13] = {0x40,0xA0,0xC8,0xA4,0xA6,0xA2,0x2F,0x27,0x81,0x10,0xFA,0x90,0xAF};
-	for(i = 0; i < 13; i++){
+	for(i = 0; i < 13; i++)
 		LCD_send_command(command[i]);
-	   }
-	for(a = 0; a < (LCD_H); a++){
-		for(b = 0; b < (LCD_W); b++){
-			lcd_map[b][a] = 0;
+
+	//Initialize clear map with border
+	for(a = 0; a < LCD_H; a++){
+		for(b = 0; b < LCD_W; b++){
+			if (b > 2 && b < (LCD_W-3) && a > 1 && a < (LCD_H-2))
+				lcd_map[b][a] = 0;
+			else
+				lcd_map[b][a] = BORDER;
 		}
 	}
-	lcd_map[1][1] = 1;
-
-	lcd_map[1][2] = 1;
-
-	lcd_map[2][2] = 1;
-
-	lcd_map[20][30] = 1;
-for(i = 0; i< LCD_W; i++)
-	lcd_map[i][5] = 1;
-
-	return;
 }
 
-int main()
-{
-	unsigned long a;
-	int i, j;
+void init_game(){
+   	int offset, index, i, j;
 
-	init_platform();
+   	length = 4;
+   	food_eaten = 0;
+   	x_position = 10;
+   	y_position = 10;
 
-	EN = 1;
-    //A megszakításkezelõ rutin beállítása.
-    XIntc_RegisterHandler(XPAR_INTC_SINGLE_BASEADDR, XPAR_MICROBLAZE_0_INTC_SPI_IO_0_READY_INTR, (XInterruptHandler) spi_int_handler, NULL);
-	XIntc_RegisterHandler(XPAR_MICROBLAZE_0_INTC_BASEADDR, XPAR_MICROBLAZE_0_INTC_AXI_TIMER_0_INTERRUPT_INTR,(XInterruptHandler) timer_int_handler,	NULL);
-
-    //A megszakítás vezérlõ konfigurálása.
-	XIntc_MasterEnable(XPAR_MICROBLAZE_0_INTC_BASEADDR);
-
-	//A megszakítások engedélyezése a processzoron.
-	XIntc_EnableIntr(XPAR_INTC_0_BASEADDR, XPAR_AXI_TIMER_0_INTERRUPT_MASK | XPAR_SPI_IO_0_READY_MASK);
-
-    //A megszakítások engedélyezése a processzoron.
-    microblaze_enable_interrupts();
-
-    //Kapcsolók beolvasása és LED-ekre írás
-    a = XIo_In32(0x7e400004);
-    XIo_Out32(0x7e400000, a);
-    //SPI interrupt engedélyezés
-    XIo_Out32(0x77A0000B, 0xF0000000);
-
-	XTmrCtr_SetLoadReg(XPAR_AXI_TIMER_0_BASEADDR, 0, XPAR_AXI_TIMER_0_CLOCK_FREQ_HZ/1);
-    XTmrCtr_SetControlStatusReg(XPAR_AXI_TIMER_0_BASEADDR,0,XTC_CSR_INT_OCCURED_MASK | XTC_CSR_LOAD_MASK);
-    //A timer elindítása.
-    XTmrCtr_SetControlStatusReg(XPAR_AXI_TIMER_0_BASEADDR,0,XTC_CSR_ENABLE_TMR_MASK | XTC_CSR_ENABLE_INT_MASK |XTC_CSR_AUTO_RELOAD_MASK | XTC_CSR_DOWN_COUNT_MASK);
-
-   // Game
-   	int offset, index;
-   	int control, new_dir = RIGHT;
-
-   	//Initialize clear map
-   	for (j = 0; j < YSIZE; j++) {
-   		for (i = 0; i < XSIZE; i++) {
+   	//Initialize clear game map
+   	for (j = 0; j < YSIZE; j++)
+   		for (i = 0; i < XSIZE; i++)
    			map[i][j] = 0;
-   		}
-   	}
 
    	//Initialize snake (using circular buffer)
    	for (i = 0; i < length; i++) {
@@ -301,42 +262,106 @@ int main()
    		food_y = rand() % YSIZE;
    	} while (map[food_x][food_y] != 0);
    	map[food_x][food_y] = FOOD;
+}
 
-    LCD_init();
-    LCD_write_full_display();
+int main()
+{
+   	int control, new_dir, a;
+   	EN = 1;
 
+	init_platform();
 
-    while(1) {
-    	if (lcd_rewrite == 1){
-    		LCD_write_full_display();
-    		lcd_rewrite = 0;
+    //A megszakításkezelõ rutin beállítása.
+    XIntc_RegisterHandler(XPAR_INTC_SINGLE_BASEADDR, XPAR_MICROBLAZE_0_INTC_SPI_IO_0_READY_INTR, (XInterruptHandler) spi_int_handler, NULL);
+	XIntc_RegisterHandler(XPAR_MICROBLAZE_0_INTC_BASEADDR, XPAR_MICROBLAZE_0_INTC_AXI_TIMER_0_INTERRUPT_INTR,(XInterruptHandler) timer_int_handler,	NULL);
+
+    //A megszakítás vezérlõ konfigurálása.
+	XIntc_MasterEnable(XPAR_MICROBLAZE_0_INTC_BASEADDR);
+
+	//A megszakítások engedélyezése a processzoron.
+	XIntc_EnableIntr(XPAR_INTC_0_BASEADDR, XPAR_AXI_TIMER_0_INTERRUPT_MASK | XPAR_SPI_IO_0_READY_MASK);
+
+    //A megszakítások engedélyezése a processzoron.
+    microblaze_enable_interrupts();
+
+    /*//Kapcsolók beolvasása és LED-ekre írás
+    a = XIo_In32(0x7e400004);
+    XIo_Out32(0x7e400000, a);*/
+
+    //SPI interrupt engedélyezés
+    XIo_Out32(0x77A0000B, 0xF0000000);
+
+	XTmrCtr_SetLoadReg(XPAR_AXI_TIMER_0_BASEADDR, 0, XPAR_AXI_TIMER_0_CLOCK_FREQ_HZ/4);
+    XTmrCtr_SetControlStatusReg(XPAR_AXI_TIMER_0_BASEADDR,0,XTC_CSR_INT_OCCURED_MASK | XTC_CSR_LOAD_MASK);
+
+    //A timer elindítása.
+    XTmrCtr_SetControlStatusReg(XPAR_AXI_TIMER_0_BASEADDR,0,XTC_CSR_ENABLE_TMR_MASK | XTC_CSR_ENABLE_INT_MASK |XTC_CSR_AUTO_RELOAD_MASK | XTC_CSR_DOWN_COUNT_MASK);
+
+    // Game
+    while(1){
+    	alive = 0;
+    	direction = RIGHT;
+    	init_game();
+    	LCD_init();
+    	LCD_write_full_display();
+
+    	//Wait for input
+    	while (((XIo_In32(0x7e400004) & 0xF00) >> 8) == 0);
+    	//TODO: check and set level
+    	alive = 1;
+
+    	while(alive == 1) {
+    		if (lcd_rewrite == 1){
+    			//LCD rewrite
+    			LCD_write_full_display();
+
+    			//Score rewrite
+    			a = XIo_In32(0x7e400000) & 0xFF;
+    			a = a |(0x0F00 & ((food_eaten%10) << 8));
+    			a = a | (0xF000 & ((food_eaten/10) << 12));
+
+    			//Level rewrite
+    			a = a | (0xF000 & ((food_eaten/10) << 12));
+
+    			XIo_Out32(0x7e400000, a);
+    			lcd_rewrite = 0;
+    		}
+
+    		control = (XIo_In32(0x7e400004) & 0xF00) >> 8;
+    		//Controls
+    		switch (control) {
+    		case 4: {
+    			new_dir = LEFT;
+    			break;
+    		}
+    		case 8: {
+    			new_dir = RIGHT;
+    			break;
+    		}
+    		case 1: {
+    			new_dir = UP;
+    			break;
+    		}
+    		case 2: {
+    			new_dir = DOWN;
+    			break;
+    		}
+    		default:
+    			new_dir = direction;
+    		}
+
+    		//180 degree turn prevented
+    		if ((direction*new_dir) < 0)
+    			direction = new_dir;
     	}
 
-    	control = (XIo_In32(0x7e400004) & 0xF00) >> 8;
-    	//Controls
-    	switch (control) {
-    	case 4: {
-    		new_dir = LEFT;
-    		break;
+    	if(alive == 0){
+    		//GAME OVER
+    		;
     	}
-    	case 8: {
-    		new_dir = RIGHT;
-    		break;
+    	else if(alive == 2){
+    		//WINNER
+    		;
     	}
-    	case 1: {
-    		new_dir = UP;
-    		break;
-    	}
-    	case 2: {
-    		new_dir = DOWN;
-    		break;
-    	}
-    	default:
-    		new_dir = direction;
-    	}
-
-    	//180 degree turn prevented
-    	if ((direction*new_dir) < 0)
-    		direction = new_dir;
     }
 }
